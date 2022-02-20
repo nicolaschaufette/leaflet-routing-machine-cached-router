@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width; initial-scale=1.0, maximum-scale=1">
+
+    <title>
+      Router cache plugin for Leaflet Routing Machine
+    </title>
+
+    <script src="https://www.liedman.net/leaflet-routing-machine/public/lib/highlight.pack.js"></script>
+
+    <!-- CSS -->
+    <link href='//fonts.googleapis.com/css?family=Raleway:400,300,600' rel='stylesheet' type='text/css'>
+    <link rel="stylesheet" href="http://cdnjs.cloudflare.com/ajax/libs/github-fork-ribbon-css/0.1.1/gh-fork-ribbon.css">
+    <!--[if lt IE 9]>
+        <link rel="stylesheet" href="http://cdnjs.cloudflare.com/ajax/libs/github-fork-ribbon-css/0.1.1/gh-fork-ribbon.ie.css">
+    <![endif]-->
+    <link rel="stylesheet" href="https://www.liedman.net/leaflet-routing-machine/public/css/normalize.css">
+    <link rel="stylesheet" href="https://www.liedman.net/leaflet-routing-machine/public/css/skeleton.css">
+    <link rel="stylesheet" href="https://www.liedman.net/leaflet-routing-machine/lib/prism.css">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@latest/dist/leaflet.css" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.css" />
+    <link rel="stylesheet" href="https://www.liedman.net/leaflet-routing-machine/public/css/site.css" />
+    <script src="https://unpkg.com/leaflet@latest/dist/leaflet-src.js"></script>
+    <script src="https://unpkg.com/leaflet.icon.glyph@0.2.0/Leaflet.Icon.Glyph.js"></script>
+    <script src="https://unpkg.com/leaflet-control-geocoder/dist/Control.Geocoder.js"></script>
+    <script src="https://unpkg.com/leaflet-routing-machine@latest/dist/leaflet-routing-machine.js"></script>
+	<script src="https://www.liedman.net/leaflet-routing-machine/config.js"></script>
+
+  </head>
+<body>
+<H1>Router cache plugin for Leaflet Routing Machine</H1><br>
+<input type="button" value="Hide/Show Control with standard router" onclick="hideOrShowRoute(controlStd)">
+<input type="button" value="Hide/Show Control with cached router" onclick="hideOrShowRoute(controlCached)">
+<div id="map" class="map"></div>
+</body>
+
+	<script type="text/javascript">
+		L.Routing.RouteCached = function(parentClass, options) {
+			return new (parentClass.extend({
+				initialize: function(options) {
+					parentClass.prototype.initialize.call(this, options);
+					this.cachedCalls = [];
+				},
+
+				cachedCallback: function(err, routes) {
+					this.routeCache.cachedCalls[this.wpts] = routes;
+					this.callbackRouteCached.call(this, err, routes);
+				},
+				
+				route: function(waypoints, callback, context, options) {
+					var str = "";
+					waypoints.forEach(w => { str += w.latLng.lat + "," +  w.latLng.lng + ";"; });
+					if (this.cachedCalls[str]) {
+						let routes = this.cachedCalls[str];
+						// timeout 50ms to wait for div elemnts to be created and properly initialized
+						setTimeout(function() { callback.call(context, null, routes); }, 50);
+					}
+					else {
+						context.callbackRouteCached = callback;
+						context.wpts = str;
+						context.routeCache = this;
+						return parentClass.prototype.route.call(this, waypoints, this.cachedCallback, context, options);
+					}
+				}
+			}))(options);
+		}
+
+		L.Routing.RouteCachedUsingUsingOSRMv1 = L.Routing.OSRMv1.extend({
+			initialize: function(options) {
+				L.Routing.OSRMv1.prototype.initialize.call(this, options);
+			},
+		});
+	
+		  function handleError(e) {
+			if (e.error.status === -1) {
+			  // HTTP error, show our error banner
+			  document.querySelector('#osrm-error').style.display = 'block';
+			  L.DomEvent.on(document.querySelector('#osrm-error-close'), 'click', function(e) {
+				document.querySelector('#osrm-error').style.display = 'none';
+				L.DomEvent.preventDefault(e);
+			  });
+			}
+		  }
+
+		  function hideOrShowRoute(control) {
+			if (control.displayed)
+				control.remove();
+			else
+				control.addTo(map);
+			control.displayed = !control.displayed;
+		  }
+		  
+		  function constructControl(waypoints, router) {
+			 let c = L.Routing.control({
+				router: router,
+				plan: L.Routing.plan(waypoints, {
+					createMarker: function(i, wp) {
+						return L.marker(wp.latLng, {
+							draggable: true,
+							icon: L.icon.glyph({ glyph: String.fromCharCode(65 + i) })
+						});
+					},
+					routeWhileDragging: true
+				}),
+				routeWhileDragging: true,
+				routeDragTimeout: 250,
+				showAlternatives: true,
+				altLineOptions: {
+					styles: [
+						{color: 'black', opacity: 0.15, weight: 9},
+						{color: 'white', opacity: 0.8, weight: 6},
+						{color: 'blue', opacity: 0.5, weight: 2}
+					]
+				}
+			})
+			.addTo(map)
+			.on('routingerror', function(e) {
+				try {
+					map.getCenter();
+				} catch (e) {
+					map.fitBounds(L.latLngBounds(waypoints));
+				}
+
+				handleError(e);
+			});
+			c.displayed = true;
+			return c;
+		  }
+
+		  
+		  var map = L.map('map', { scrollWheelZoom: false }),
+			waypoints1 = [ L.latLng(48.8588,2.3469), L.latLng(52.3546,4.9039) ],
+			waypoints2 = [ L.latLng(48.8588,4.3469), L.latLng(52.3546,6.9039) ];
+
+		L.tileLayer(LRM.tileLayerUrl, {
+			attribution: 'Maps and routes from <a href="https://www.openstreetmap.org">OpenStreetMap</a>. ' +
+				'data uses <a href="http://opendatacommons.org/licenses/odbl/">ODbL</a> license'
+		}).addTo(map);
+
+		var controlStd = constructControl(waypoints1, L.routing.osrmv1({ serviceUrl: LRM.osmServiceUrl }));
+		var controlCached = constructControl(waypoints2, L.Routing.RouteCached(L.Routing.RouteCachedUsingUsingOSRMv1, { serviceUrl: LRM.osmServiceUrl }));
+		L.Routing.errorControl(controlStd).addTo(map);
+		L.Routing.errorControl(controlCached).addTo(map);
+
+	</script>
+
+</html>
